@@ -1,0 +1,80 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import zipfile as zip
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    precision_recall_curve
+)
+with zip.ZipFile('archive (6).zip', 'r') as zip_ref:
+    zip_ref.extractall('/content/')
+
+df = pd.read_csv("/content/synthetic_fraud_dataset.csv")
+df.head()
+
+df = df.drop(['transaction_id','user_id'],axis=1)
+
+df = df.sort_values("hour")
+
+train_df = df[df["hour"] < 18]
+test_df  = df[df["hour"] >= 18]
+
+X_train = train_df.drop("is_fraud", axis=1)
+y_train = train_df["is_fraud"]
+
+X_test  = test_df.drop("is_fraud", axis=1)
+y_test  = test_df["is_fraud"]
+
+num_features = X_train.select_dtypes(include=np.number).columns
+cat_features = X_train.select_dtypes(include="object").columns
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", StandardScaler(), num_features),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_features)
+    ]
+)
+
+model = LogisticRegression(
+    class_weight="balanced",
+    max_iter=1000
+)
+
+pipeline = Pipeline(
+    steps=[
+        ("preprocess", preprocessor),
+        ("model", model)
+    ]
+)
+
+pipeline.fit(X_train, y_train)
+
+y_prob = pipeline.predict_proba(X_test)[:, 1]
+y_pred = (y_prob >= 0.5).astype(int)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+print("ROC AUC:", roc_auc_score(y_test, y_prob))
+
+precision, recall, thresholds = precision_recall_curve(y_test, y_prob)
+
+f1_scores = (2 * precision * recall) / (precision + recall + 1e-9)
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx]
+
+print("Best Threshold:", best_threshold)
+print("Precision:", precision[best_idx])
+print("Recall:", recall[best_idx])
+
+def predict_fraud(model, X, threshold):
+    prob = model.predict_proba(X)[:, 1]
+    return (prob >= threshold).astype(int)
